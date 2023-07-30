@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, fmt::Display};
+use std::collections::VecDeque;
 
 use macroquad::prelude::*;
 
@@ -144,8 +144,8 @@ async fn main() {
         };
 
         let (col, row) = (
-            ((mouse_x - TILE_START_X) / TILE_SIZE) as usize,
-            ((mouse_y - TILE_START_Y) / TILE_SIZE) as usize,
+            (((mouse_x - TILE_START_X) / TILE_SIZE) as usize).min(EXPERT_WIDTH - 1),
+            (((mouse_y - TILE_START_Y) / TILE_SIZE) as usize).min(EXPERT_HEIGHT - 1),
         );
 
         if (is_mouse_button_pressed(MouseButton::Left)
@@ -166,11 +166,13 @@ async fn main() {
                         reveal_all_mines(&mines, &flagged, &mut revealed);
                         unflagged_mines.push((surrounding_tile_col, surrounding_tile_row))
                     } else {
-                        continue
+                        continue;
                     }
                 }
 
-                revealed[surrounding_tile_col][surrounding_tile_row] = true;
+                if alive {
+                    revealed[surrounding_tile_col][surrounding_tile_row] = true;
+                }
 
                 if neighbour_mines_counts[surrounding_tile_col][surrounding_tile_row] == 0 {
                     reveal_empty_space(
@@ -181,6 +183,28 @@ async fn main() {
                         &mines,
                     )
                 }
+            }
+        } else if alive
+            && !revealed[col][row]
+            && is_mouse_button_pressed(MouseButton::Right)
+            && hovering_tile(mouse_x, mouse_y, col, row)
+        {
+            flagged[col][row] = !flagged[col][row];
+        } else if alive
+            && is_mouse_button_pressed(MouseButton::Left)
+            && hovering_tile(mouse_x, mouse_y, col, row)
+            && !flagged[col][row]
+        {
+            revealed[col][row] = true;
+
+            if mines[col][row] {
+                alive = false;
+
+                reveal_all_mines(&mines, &flagged, &mut revealed);
+
+                unflagged_mines.push((col, row));
+            } else if neighbour_mines_counts[col][row] == 0 {
+                reveal_empty_space(col, row, &mut revealed, &neighbour_mines_counts, &mines)
             }
         }
 
@@ -210,31 +234,6 @@ async fn main() {
                             row,
                         )
                     }
-                }
-
-                if alive
-                    && is_mouse_button_pressed(MouseButton::Left)
-                    && hovering_tile(mouse_x, mouse_y, col, row)
-                {
-                    revealed[col][row] = true;
-
-                    if mines[col][row] {
-                        alive = false;
-
-                        reveal_all_mines(&mines, &flagged, &mut revealed);
-
-                        unflagged_mines.push((col, row));
-                    } else if neighbour_mines_counts[col][row] == 0 {
-                        reveal_empty_space(col, row, &mut revealed, &neighbour_mines_counts, &mines)
-                    }
-                }
-
-                if alive
-                    && !revealed[col][row]
-                    && is_mouse_button_pressed(MouseButton::Right)
-                    && hovering_tile(mouse_x, mouse_y, col, row)
-                {
-                    flagged[col][row] = !flagged[col][row];
                 }
 
                 if !alive && flagged[col][row] && !mines[col][row] {
