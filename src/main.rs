@@ -30,8 +30,8 @@ fn window_conf() -> Conf {
 async fn main() {
     let mut revealed = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
     let mut flagged = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
-    let mut mines = generate_mines();
-    let mut neighbour_mines_counts = generate_neighboured_mines(&mines);
+    let mut mines = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
+    let mut neighbour_mines_counts = vec![vec![0; EXPERT_HEIGHT]; EXPERT_WIDTH];
 
     let background =
         Texture2D::from_file_with_format(include_bytes!("../assets/background.png"), None);
@@ -61,6 +61,7 @@ async fn main() {
     let mut alive = true;
     let mut unflagged_mines = Vec::<(usize, usize)>::new();
     let mut restart_game = false;
+    let mut game_started = false;
 
     loop {
         clear_background(Color::from_rgba(192, 192, 192, 255));
@@ -81,9 +82,8 @@ async fn main() {
             alive = true;
             revealed = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
             flagged = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
-            mines = generate_mines();
-            neighbour_mines_counts = generate_neighboured_mines(&mines);
             unflagged_mines.clear();
+            game_started = false;
             restart_game = false;
         }
 
@@ -107,6 +107,7 @@ async fn main() {
                 );
 
                 restart_game = true;
+                game_started = false;
             } else {
                 draw_texture_ex(
                     &smiley_open,
@@ -148,12 +149,13 @@ async fn main() {
             (((mouse_y - TILE_START_Y) / TILE_SIZE) as usize).min(EXPERT_HEIGHT - 1),
         );
 
-        if (is_mouse_button_pressed(MouseButton::Left)
-            && is_mouse_button_pressed(MouseButton::Right)
+        if (is_mouse_button_released(MouseButton::Left)
+            && is_mouse_button_released(MouseButton::Right)
             || is_mouse_button_down(MouseButton::Left)
                 && is_mouse_button_released(MouseButton::Right)
             || is_mouse_button_down(MouseButton::Right)
-                && is_mouse_button_released(MouseButton::Left))
+                && is_mouse_button_released(MouseButton::Left)
+            || is_mouse_button_released(MouseButton::Middle))
             && revealed[col][row]
             && number_flags_around(&flagged, col, row) == number_flags_around(&mines, col, row)
         {
@@ -186,15 +188,20 @@ async fn main() {
             }
         } else if alive
             && !revealed[col][row]
-            && is_mouse_button_pressed(MouseButton::Right)
+            && is_mouse_button_released(MouseButton::Right)
             && hovering_tile(mouse_x, mouse_y, col, row)
         {
             flagged[col][row] = !flagged[col][row];
         } else if alive
-            && is_mouse_button_pressed(MouseButton::Left)
+            && is_mouse_button_released(MouseButton::Left)
             && hovering_tile(mouse_x, mouse_y, col, row)
             && !flagged[col][row]
         {
+            if !game_started {
+                (mines, neighbour_mines_counts) = generate_fair_mines(col, row);
+                game_started = true;
+            }
+
             revealed[col][row] = true;
 
             if mines[col][row] {
@@ -320,6 +327,17 @@ fn print_mines(mines: &[[bool; EXPERT_HEIGHT]; EXPERT_WIDTH]) {
     }
 }
 
+fn generate_fair_mines(start_col: usize, start_row: usize) -> ([[bool; EXPERT_HEIGHT]; EXPERT_WIDTH], Vec<Vec<i32>>) {
+    loop {
+        let mines = generate_mines();
+        let neighbour_mines_counts = generate_neighboured_mines(&mines);
+
+        if neighbour_mines_counts[start_col][start_row] == 0 && !mines[start_col][start_row] {
+            return (mines, neighbour_mines_counts)
+        }
+    }
+}
+
 fn generate_mines() -> [[bool; EXPERT_HEIGHT]; EXPERT_WIDTH] {
     let mut mines = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
 
@@ -329,24 +347,6 @@ fn generate_mines() -> [[bool; EXPERT_HEIGHT]; EXPERT_WIDTH] {
 
     for col in mines.iter_mut() {
         fastrand::shuffle(col);
-    }
-
-    let (starting_click_x, starting_click_y) = (0, 0);
-
-    if mines[starting_click_x][starting_click_y] {
-        loop {
-            let (random_tile_x, random_tile_y) = (
-                fastrand::usize(0..EXPERT_WIDTH),
-                fastrand::usize(0..EXPERT_HEIGHT),
-            );
-
-            if !mines[random_tile_x][random_tile_y] {
-                mines[random_tile_x][random_tile_y] = true;
-                break;
-            }
-        }
-
-        mines[starting_click_x][starting_click_y] = false;
     }
 
     mines
