@@ -1,10 +1,11 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Instant};
 
 use macroquad::prelude::*;
 
 const EXPERT_WIDTH: usize = 30;
 const EXPERT_HEIGHT: usize = 16;
 const EXPERT_MINES: usize = 99;
+// const EXPERT_MINES: usize = 10;
 const WINDOW_SIZE_MULTIPLIER: f32 = 1.5;
 const WINDOW_WIDTH: i32 = (505.0 * WINDOW_SIZE_MULTIPLIER) as i32;
 const WINDOW_HEIGHT: i32 = (324.0 * WINDOW_SIZE_MULTIPLIER) as i32;
@@ -14,6 +15,11 @@ const TILE_SIZE: f32 = 16.0 * WINDOW_SIZE_MULTIPLIER;
 const SMILEY_START_X: f32 = 239.0 * WINDOW_SIZE_MULTIPLIER;
 const SMILEY_START_Y: f32 = 15.0 * WINDOW_SIZE_MULTIPLIER;
 const SMILEY_SIZE: f32 = 26.0 * WINDOW_SIZE_MULTIPLIER;
+const COUNTER_DIGIT_WIDTH: f32 = 13.0 * WINDOW_SIZE_MULTIPLIER;
+const COUNTER_DIGIT_HEIGHT: f32 = 23.0 * WINDOW_SIZE_MULTIPLIER;
+const MINES_COUNTER_START_X: f32 = 16.0 * WINDOW_SIZE_MULTIPLIER;
+const MINES_COUNTER_START_Y: f32 = 17.0 * WINDOW_SIZE_MULTIPLIER;
+const TIME_COUNTER_START_X: f32 = 446.0 * WINDOW_SIZE_MULTIPLIER;
 
 fn window_conf() -> Conf {
     Conf {
@@ -26,13 +32,16 @@ fn window_conf() -> Conf {
     }
 }
 
+#[derive(PartialEq, Debug)]
+enum State {
+    Playing,
+    Dead,
+    Won,
+    NewGame,
+}
+
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut revealed = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
-    let mut flagged = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
-    let mut mines = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
-    let mut neighbour_mines_counts = vec![vec![0; EXPERT_HEIGHT]; EXPERT_WIDTH];
-
     let background =
         Texture2D::from_file_with_format(include_bytes!("../assets/background.png"), None);
     let tile = Texture2D::from_file_with_format(include_bytes!("../assets/tile.png"), None);
@@ -46,6 +55,8 @@ async fn main() {
         Texture2D::from_file_with_format(include_bytes!("../assets/smiley_dead.png"), None);
     let smiley_clicked =
         Texture2D::from_file_with_format(include_bytes!("../assets/smiley_clicked.png"), None);
+    let smiley_glasses =
+        Texture2D::from_file_with_format(include_bytes!("../assets/smiley_glasses.png"), None);
 
     let neighbour_mines_textures = [
         Texture2D::from_file_with_format(include_bytes!("../assets/1.png"), None),
@@ -58,36 +69,74 @@ async fn main() {
         Texture2D::from_file_with_format(include_bytes!("../assets/8.png"), None),
     ];
 
-    let mut alive = true;
+    let counters_textures = [
+        Texture2D::from_file_with_format(include_bytes!("../assets/0_counter.png"), None),
+        Texture2D::from_file_with_format(include_bytes!("../assets/1_counter.png"), None),
+        Texture2D::from_file_with_format(include_bytes!("../assets/2_counter.png"), None),
+        Texture2D::from_file_with_format(include_bytes!("../assets/3_counter.png"), None),
+        Texture2D::from_file_with_format(include_bytes!("../assets/4_counter.png"), None),
+        Texture2D::from_file_with_format(include_bytes!("../assets/5_counter.png"), None),
+        Texture2D::from_file_with_format(include_bytes!("../assets/6_counter.png"), None),
+        Texture2D::from_file_with_format(include_bytes!("../assets/7_counter.png"), None),
+        Texture2D::from_file_with_format(include_bytes!("../assets/8_counter.png"), None),
+        Texture2D::from_file_with_format(include_bytes!("../assets/9_counter.png"), None),
+    ];
+
+    let mut revealed = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
+    let mut flagged = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
+    let mut mines = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
+    let mut neighbour_mines_counts = vec![vec![0; EXPERT_HEIGHT]; EXPERT_WIDTH];
+
     let mut unflagged_mines = Vec::<(usize, usize)>::new();
-    let mut restart_game = false;
-    let mut game_started = false;
+    let mut number_flagged = 0;
+    let mut start = Instant::now();
+    let mut elapsed = 0;
+
+    let mut state = State::NewGame;
 
     loop {
         clear_background(Color::from_rgba(192, 192, 192, 255));
         let (mouse_x, mouse_y) = mouse_position();
 
-        draw_texture_ex(
-            &background,
-            0.0,
-            0.0,
-            WHITE,
-            DrawTextureParams {
-                dest_size: Some(vec2(screen_width(), screen_height())),
-                ..Default::default()
-            },
+        draw_texture_with_size(&background, 0.0, 0.0, screen_width(), screen_height());
+
+        draw_counter(
+            elapsed.min(999),
+            TIME_COUNTER_START_X,
+            MINES_COUNTER_START_Y,
+            &counters_textures,
         );
 
-        if restart_game && is_mouse_button_released(MouseButton::Left) {
-            alive = true;
+        draw_counter(
+            EXPERT_MINES - number_flagged,
+            MINES_COUNTER_START_X,
+            MINES_COUNTER_START_Y,
+            &counters_textures,
+        );
+
+        if state == State::Playing && is_game_won(&revealed, &mines) {
+            state = State::Won;
+        }
+
+        if is_mouse_button_pressed(MouseButton::Left)
+            && hovering_square(
+                mouse_x,
+                mouse_y,
+                SMILEY_START_X,
+                SMILEY_START_Y,
+                SMILEY_SIZE,
+            )
+        {
             revealed = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
             flagged = [[false; EXPERT_HEIGHT]; EXPERT_WIDTH];
             unflagged_mines.clear();
-            game_started = false;
-            restart_game = false;
+            number_flagged = 0;
+            elapsed = 0;
+
+            state = State::NewGame;
         }
 
-        if is_mouse_button_down(MouseButton::Left) {
+        let smiley_texture = if is_mouse_button_down(MouseButton::Left) {
             if hovering_square(
                 mouse_x,
                 mouse_y,
@@ -95,67 +144,39 @@ async fn main() {
                 SMILEY_START_Y,
                 SMILEY_SIZE,
             ) {
-                draw_texture_ex(
-                    &smiley_clicked,
-                    SMILEY_START_X,
-                    SMILEY_START_Y,
-                    WHITE,
-                    DrawTextureParams {
-                        dest_size: Some(vec2(SMILEY_SIZE, SMILEY_SIZE)),
-                        ..Default::default()
-                    },
-                );
-
-                restart_game = true;
-                game_started = false;
+                &smiley_clicked
             } else {
-                draw_texture_ex(
-                    &smiley_open,
-                    SMILEY_START_X,
-                    SMILEY_START_Y,
-                    WHITE,
-                    DrawTextureParams {
-                        dest_size: Some(vec2(SMILEY_SIZE, SMILEY_SIZE)),
-                        ..Default::default()
-                    },
-                );
+                &smiley_open
             }
-        } else if !alive {
-            draw_texture_ex(
-                &smiley_dead,
-                SMILEY_START_X,
-                SMILEY_START_Y,
-                WHITE,
-                DrawTextureParams {
-                    dest_size: Some(vec2(SMILEY_SIZE, SMILEY_SIZE)),
-                    ..Default::default()
-                },
-            )
+        } else if state == State::Dead {
+            &smiley_dead
+        } else if state == State::Won {
+            &smiley_glasses
         } else {
-            draw_texture_ex(
-                &smiley,
-                SMILEY_START_X,
-                SMILEY_START_Y,
-                WHITE,
-                DrawTextureParams {
-                    dest_size: Some(vec2(SMILEY_SIZE, SMILEY_SIZE)),
-                    ..Default::default()
-                },
-            );
+            &smiley
         };
+
+        draw_texture_with_size(
+            smiley_texture,
+            SMILEY_START_X,
+            SMILEY_START_Y,
+            SMILEY_SIZE,
+            SMILEY_SIZE,
+        );
 
         let (col, row) = (
             (((mouse_x - TILE_START_X) / TILE_SIZE) as usize).min(EXPERT_WIDTH - 1),
             (((mouse_y - TILE_START_Y) / TILE_SIZE) as usize).min(EXPERT_HEIGHT - 1),
         );
 
-        if (is_mouse_button_released(MouseButton::Left)
-            && is_mouse_button_released(MouseButton::Right)
-            || is_mouse_button_down(MouseButton::Left)
+        if state == State::Playing
+            && (is_mouse_button_released(MouseButton::Left)
                 && is_mouse_button_released(MouseButton::Right)
-            || is_mouse_button_down(MouseButton::Right)
-                && is_mouse_button_released(MouseButton::Left)
-            || is_mouse_button_released(MouseButton::Middle))
+                || is_mouse_button_down(MouseButton::Left)
+                    && is_mouse_button_released(MouseButton::Right)
+                || is_mouse_button_down(MouseButton::Right)
+                    && is_mouse_button_released(MouseButton::Left)
+                || is_mouse_button_released(MouseButton::Middle))
             && revealed[col][row]
             && number_flags_around(&flagged, col, row) == number_flags_around(&mines, col, row)
         {
@@ -164,7 +185,7 @@ async fn main() {
             for (surrounding_tile_col, surrounding_tile_row) in surrounding_tiles {
                 if mines[surrounding_tile_col][surrounding_tile_row] {
                     if !flagged[surrounding_tile_col][surrounding_tile_row] {
-                        alive = false;
+                        state = State::Dead;
                         reveal_all_mines(&mines, &flagged, &mut revealed);
                         unflagged_mines.push((surrounding_tile_col, surrounding_tile_row))
                     } else {
@@ -172,7 +193,7 @@ async fn main() {
                     }
                 }
 
-                if alive {
+                if state == State::Playing {
                     revealed[surrounding_tile_col][surrounding_tile_row] = true;
                 }
 
@@ -186,26 +207,33 @@ async fn main() {
                     )
                 }
             }
-        } else if alive
+        } else if state == State::Playing
             && !revealed[col][row]
-            && is_mouse_button_released(MouseButton::Right)
+            && is_mouse_button_pressed(MouseButton::Right)
             && hovering_tile(mouse_x, mouse_y, col, row)
         {
-            flagged[col][row] = !flagged[col][row];
-        } else if alive
-            && is_mouse_button_released(MouseButton::Left)
+            if flagged[col][row] {
+                number_flagged -= 1;
+                flagged[col][row] = false;
+            } else {
+                number_flagged += 1;
+                flagged[col][row] = true;
+            }
+        } else if (state == State::Playing || state == State::NewGame)
+            && is_mouse_button_pressed(MouseButton::Left)
             && hovering_tile(mouse_x, mouse_y, col, row)
             && !flagged[col][row]
         {
-            if !game_started {
+            if state == State::NewGame {
                 (mines, neighbour_mines_counts) = generate_fair_mines(col, row);
-                game_started = true;
+                start = Instant::now();
+                state = State::Playing;
             }
 
             revealed[col][row] = true;
 
             if mines[col][row] {
-                alive = false;
+                state = State::Dead;
 
                 reveal_all_mines(&mines, &flagged, &mut revealed);
 
@@ -217,7 +245,7 @@ async fn main() {
 
         for row in 0..EXPERT_HEIGHT {
             for col in 0..EXPERT_WIDTH {
-                if !alive && mines[col][row] {
+                if state == State::Dead && mines[col][row] {
                     if unflagged_mines.contains(&(col, row)) {
                         draw_rectangle(
                             TILE_START_X + 1.0 + col as f32 * TILE_SIZE,
@@ -243,7 +271,7 @@ async fn main() {
                     }
                 }
 
-                if !alive && flagged[col][row] && !mines[col][row] {
+                if state == State::Dead && flagged[col][row] && !mines[col][row] {
                     revealed[col][row] = true;
                     draw_at_tile(&mine, col, row);
                     draw_at_tile(&cross, col, row);
@@ -259,8 +287,27 @@ async fn main() {
             }
         }
 
+        if state == State::Playing {
+            elapsed = start.elapsed().as_secs() as usize
+        }
+
         next_frame().await
     }
+}
+
+fn is_game_won(
+    revealed: &[[bool; EXPERT_HEIGHT]; EXPERT_WIDTH],
+    mines: &[[bool; EXPERT_HEIGHT]; EXPERT_WIDTH],
+) -> bool {
+    for (revealed_col, mines_col) in revealed.iter().zip(mines) {
+        for (revealed_tile, mine_tile) in revealed_col.iter().zip(mines_col) {
+            if revealed_tile == mine_tile {
+                return false;
+            }
+        }
+    }
+
+    true
 }
 
 fn reveal_empty_space(
@@ -284,9 +331,7 @@ fn reveal_empty_space(
                 queue.push_back((neighbour_col, neighbour_row))
             }
 
-            if !mines[neighbour_col][neighbour_row] {
-                revealed[neighbour_col][neighbour_row] = true;
-            }
+            revealed[neighbour_col][neighbour_row] = true;
         }
     }
 }
@@ -306,34 +351,50 @@ fn reveal_all_mines(
 }
 
 fn draw_at_tile(texture: &Texture2D, col: usize, row: usize) {
-    draw_texture_ex(
+    draw_texture_with_size(
         texture,
         TILE_START_X + col as f32 * TILE_SIZE,
         TILE_START_Y + row as f32 * TILE_SIZE,
-        WHITE,
-        DrawTextureParams {
-            dest_size: Some(vec2(TILE_SIZE, TILE_SIZE)),
-            ..Default::default()
-        },
-    );
+        TILE_SIZE,
+        TILE_SIZE,
+    )
 }
 
-fn print_mines(mines: &[[bool; EXPERT_HEIGHT]; EXPERT_WIDTH]) {
-    for row in 0..EXPERT_HEIGHT {
-        for col in 0..EXPERT_WIDTH {
-            print!("{}", mines[col][row] as i32)
-        }
-        println!()
+fn draw_counter(number: usize, x: f32, y: f32, textures: &[Texture2D]) {
+    for i in 0..3 {
+        draw_texture_with_size(
+            &textures[(number / 10_usize.pow(2 - i)) % 10],
+            x + COUNTER_DIGIT_WIDTH * i as f32,
+            y,
+            COUNTER_DIGIT_WIDTH,
+            COUNTER_DIGIT_HEIGHT,
+        );
     }
 }
 
-fn generate_fair_mines(start_col: usize, start_row: usize) -> ([[bool; EXPERT_HEIGHT]; EXPERT_WIDTH], Vec<Vec<i32>>) {
+fn draw_texture_with_size(texture: &Texture2D, x: f32, y: f32, width: f32, height: f32) {
+    draw_texture_ex(
+        texture,
+        x,
+        y,
+        WHITE,
+        DrawTextureParams {
+            dest_size: Some(vec2(width, height)),
+            ..Default::default()
+        },
+    )
+}
+
+fn generate_fair_mines(
+    start_col: usize,
+    start_row: usize,
+) -> ([[bool; EXPERT_HEIGHT]; EXPERT_WIDTH], Vec<Vec<i32>>) {
     loop {
         let mines = generate_mines();
         let neighbour_mines_counts = generate_neighboured_mines(&mines);
 
         if neighbour_mines_counts[start_col][start_row] == 0 && !mines[start_col][start_row] {
-            return (mines, neighbour_mines_counts)
+            return (mines, neighbour_mines_counts);
         }
     }
 }

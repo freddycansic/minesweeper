@@ -9,3 +9,7 @@ edition = "2021"
 eyre = "0.6.8"
 fastrand = "2.0.0"
 macroquad = "0.4.2"
+
+# turn on to flamegraph
+[profile.release]
+debug = true
