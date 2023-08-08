@@ -5,7 +5,7 @@ use macroquad::prelude::*;
 const EXPERT_WIDTH: usize = 30;
 const EXPERT_HEIGHT: usize = 16;
 // const EXPERT_MINES: usize = 99;
-const EXPERT_MINES: usize = 10;
+const EXPERT_MINES: usize = 20;
 const WINDOW_SIZE_MULTIPLIER: f32 = 1.5;
 const WINDOW_WIDTH: i32 = (505.0 * WINDOW_SIZE_MULTIPLIER) as i32;
 const WINDOW_HEIGHT: i32 = (324.0 * WINDOW_SIZE_MULTIPLIER) as i32;
@@ -32,7 +32,7 @@ fn window_conf() -> Conf {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 enum State {
     Playing,
     Dead,
@@ -40,7 +40,7 @@ enum State {
     NewGame,
 }
 
-#[derive(PartialEq, Default, Clone)]
+#[derive(PartialEq, Default, Clone, Copy)]
 enum TileState {
     #[default]
     Hidden,
@@ -55,47 +55,61 @@ struct Tile {
     mine: bool,
 }
 
+struct Textures {
+    background: Texture2D,
+    tile: Texture2D,
+    flag: Texture2D,
+    mine: Texture2D,
+    cross: Texture2D,
+    smiley: Texture2D,
+    smiley_open: Texture2D,
+    smiley_dead: Texture2D,
+    smiley_clicked: Texture2D,
+    smiley_glasses: Texture2D,
+    neighbour_mines: [Texture2D; 8],
+    counter_digits: [Texture2D; 10],
+}
+
+struct Board {
+    
+}
+
 #[macroquad::main(window_conf)]
 async fn main() {
-    let background =
-        Texture2D::from_file_with_format(include_bytes!("../assets/background.png"), None);
-    let tile = Texture2D::from_file_with_format(include_bytes!("../assets/tile.png"), None);
-    let flag = Texture2D::from_file_with_format(include_bytes!("../assets/flag.png"), None);
-    let mine = Texture2D::from_file_with_format(include_bytes!("../assets/mine.png"), None);
-    let cross = Texture2D::from_file_with_format(include_bytes!("../assets/cross.png"), None);
-    let smiley = Texture2D::from_file_with_format(include_bytes!("../assets/smiley.png"), None);
-    let smiley_open =
-        Texture2D::from_file_with_format(include_bytes!("../assets/smiley_open.png"), None);
-    let smiley_dead =
-        Texture2D::from_file_with_format(include_bytes!("../assets/smiley_dead.png"), None);
-    let smiley_clicked =
-        Texture2D::from_file_with_format(include_bytes!("../assets/smiley_clicked.png"), None);
-    let smiley_glasses =
-        Texture2D::from_file_with_format(include_bytes!("../assets/smiley_glasses.png"), None);
-
-    let neighbour_mines_textures = [
-        Texture2D::from_file_with_format(include_bytes!("../assets/1.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/2.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/3.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/4.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/5.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/6.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/7.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/8.png"), None),
-    ];
-
-    let counters_textures = [
-        Texture2D::from_file_with_format(include_bytes!("../assets/0_counter.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/1_counter.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/2_counter.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/3_counter.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/4_counter.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/5_counter.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/6_counter.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/7_counter.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/8_counter.png"), None),
-        Texture2D::from_file_with_format(include_bytes!("../assets/9_counter.png"), None),
-    ];
+    let textures = Textures {
+        background: load_texture!("../assets/background.png"),
+        tile: load_texture!("../assets/tile.png"),
+        flag: load_texture!("../assets/flag.png"),
+        mine: load_texture!("../assets/mine.png"),
+        cross: load_texture!("../assets/cross.png"),
+        smiley: load_texture!("../assets/smiley.png"),
+        smiley_open: load_texture!("../assets/smiley_open.png"),
+        smiley_dead: load_texture!("../assets/smiley_dead.png"),
+        smiley_clicked: load_texture!("../assets/smiley_clicked.png"),
+        smiley_glasses: load_texture!("../assets/smiley_glasses.png"),
+        neighbour_mines: [
+            load_texture!("../assets/1.png"),
+            load_texture!("../assets/2.png"),
+            load_texture!("../assets/3.png"),
+            load_texture!("../assets/4.png"),
+            load_texture!("../assets/5.png"),
+            load_texture!("../assets/6.png"),
+            load_texture!("../assets/7.png"),
+            load_texture!("../assets/8.png"),
+        ],
+        counter_digits: [
+            load_texture!("../assets/0_counter.png"),
+            load_texture!("../assets/1_counter.png"),
+            load_texture!("../assets/2_counter.png"),
+            load_texture!("../assets/3_counter.png"),
+            load_texture!("../assets/4_counter.png"),
+            load_texture!("../assets/5_counter.png"),
+            load_texture!("../assets/6_counter.png"),
+            load_texture!("../assets/7_counter.png"),
+            load_texture!("../assets/8_counter.png"),
+            load_texture!("../assets/9_counter.png"),
+        ],
+    };
 
     let mut tiles = vec![vec![Tile::default(); EXPERT_HEIGHT]; EXPERT_WIDTH];
 
@@ -110,20 +124,26 @@ async fn main() {
         clear_background(Color::from_rgba(192, 192, 192, 255));
         let (mouse_x, mouse_y) = mouse_position();
 
-        draw_texture_with_size(&background, 0.0, 0.0, screen_width(), screen_height());
+        draw_texture_with_size(
+            &textures.background,
+            0.0,
+            0.0,
+            screen_width(),
+            screen_height(),
+        );
 
         draw_counter(
             elapsed.min(999),
             TIME_COUNTER_START_X,
             MINES_COUNTER_START_Y,
-            &counters_textures,
+            &textures.counter_digits,
         );
 
         draw_counter(
-            EXPERT_MINES - number_flagged,
+            (EXPERT_MINES - number_flagged).max(0),
             MINES_COUNTER_START_X,
             MINES_COUNTER_START_Y,
-            &counters_textures,
+            &textures.counter_digits,
         );
 
         if state == State::Playing && is_game_won(&tiles) {
@@ -155,16 +175,16 @@ async fn main() {
                 SMILEY_START_Y,
                 SMILEY_SIZE,
             ) {
-                &smiley_clicked
+                &textures.smiley_clicked
             } else {
-                &smiley_open
+                &textures.smiley_open
             }
         } else if state == State::Dead {
-            &smiley_dead
+            &textures.smiley_dead
         } else if state == State::Won {
-            &smiley_glasses
+            &textures.smiley_glasses
         } else {
-            &smiley
+            &textures.smiley
         };
 
         draw_texture_with_size(
@@ -175,136 +195,17 @@ async fn main() {
             SMILEY_SIZE,
         );
 
-        let (col, row) = (
-            (((mouse_x - TILE_START_X) / TILE_SIZE) as usize).min(EXPERT_WIDTH - 1),
-            (((mouse_y - TILE_START_Y) / TILE_SIZE) as usize).min(EXPERT_HEIGHT - 1),
+        player_game(
+            &mut tiles,
+            mouse_x,
+            mouse_y,
+            &mut state,
+            &mut unflagged_mines,
+            &mut start,
+            &mut number_flagged,
         );
 
-        if state == State::Playing
-            && (is_mouse_button_released(MouseButton::Left)
-                && is_mouse_button_released(MouseButton::Right)
-                || is_mouse_button_down(MouseButton::Left)
-                    && is_mouse_button_released(MouseButton::Right)
-                || is_mouse_button_down(MouseButton::Right)
-                    && is_mouse_button_released(MouseButton::Left)
-                || is_mouse_button_released(MouseButton::Middle))
-            && tiles[col][row].state == TileState::Revealed
-            && surrounding_tiles(col, row)
-                .into_iter()
-                .filter(|(col, row)| tiles[*col][*row].mine)
-                .count()
-                == surrounding_tiles(col, row)
-                    .into_iter()
-                    .filter(|(col, row)| tiles[*col][*row].state == TileState::Flagged)
-                    .count()
-        {
-            let surrounding_tiles = surrounding_tiles(col, row);
-
-            for (surrounding_tile_col, surrounding_tile_row) in surrounding_tiles {
-                if tiles[surrounding_tile_col][surrounding_tile_row].mine {
-                    if tiles[surrounding_tile_col][surrounding_tile_row].state != TileState::Flagged
-                    {
-                        state = State::Dead;
-                        reveal_all_mines(&mut tiles);
-                        unflagged_mines.push((surrounding_tile_col, surrounding_tile_row))
-                    } else {
-                        continue;
-                    }
-                }
-
-                if state == State::Playing {
-                    tiles[surrounding_tile_col][surrounding_tile_row].state = TileState::Revealed;
-                }
-
-                if tiles[surrounding_tile_col][surrounding_tile_row].neighbour_mines_count == 0 {
-                    reveal_empty_space(surrounding_tile_col, surrounding_tile_row, &mut tiles)
-                }
-            }
-        } else if state == State::Playing
-            && tiles[col][row].state != TileState::Revealed
-            && is_mouse_button_pressed(MouseButton::Right)
-            && hovering_tile(mouse_x, mouse_y, col, row)
-        {
-            if tiles[col][row].state == TileState::Flagged {
-                number_flagged -= 1;
-                tiles[col][row].state = TileState::Hidden
-            } else {
-                number_flagged += 1;
-                tiles[col][row].state = TileState::Flagged
-            }
-        } else if (state == State::Playing || state == State::NewGame)
-            && is_mouse_button_pressed(MouseButton::Left)
-            && hovering_tile(mouse_x, mouse_y, col, row)
-            && tiles[col][row].state != TileState::Flagged
-        {
-            if state == State::NewGame {
-                tiles = generate_fair_game(col, row);
-                start = Instant::now();
-                state = State::Playing;
-            }
-
-            tiles[col][row].state = TileState::Revealed;
-
-            if tiles[col][row].mine {
-                state = State::Dead;
-
-                reveal_all_mines(&mut tiles);
-
-                unflagged_mines.push((col, row));
-            } else if tiles[col][row].neighbour_mines_count == 0 {
-                reveal_empty_space(col, row, &mut tiles)
-            }
-        }
-
-        for row in 0..EXPERT_HEIGHT {
-            for col in 0..EXPERT_WIDTH {
-                if state == State::Dead && tiles[col][row].mine {
-                    if unflagged_mines.contains(&(col, row)) {
-                        draw_rectangle(
-                            TILE_START_X + 1.0 + col as f32 * TILE_SIZE,
-                            TILE_START_Y + 1.0 + row as f32 * TILE_SIZE,
-                            TILE_SIZE - 1.0,
-                            TILE_SIZE - 1.0,
-                            RED,
-                        )
-                    }
-
-                    draw_at_tile(&mine, col, row)
-                }
-
-                if tiles[col][row].state == TileState::Revealed {
-                    let neighbour_mines_count = tiles[col][row].neighbour_mines_count;
-
-                    if neighbour_mines_count != 0
-                        && !tiles[col][row].mine
-                        && tiles[col][row].state != TileState::Flagged
-                    {
-                        draw_at_tile(
-                            &neighbour_mines_textures[neighbour_mines_count as usize - 1],
-                            col,
-                            row,
-                        )
-                    }
-                }
-
-                if state == State::Dead
-                    && tiles[col][row].state == TileState::Flagged
-                    && !tiles[col][row].mine
-                {
-                    tiles[col][row].state = TileState::Revealed;
-                    draw_at_tile(&mine, col, row);
-                    draw_at_tile(&cross, col, row);
-                } else {
-                    if tiles[col][row].state != TileState::Revealed {
-                        draw_at_tile(&tile, col, row);
-                    }
-
-                    if tiles[col][row].state == TileState::Flagged {
-                        draw_at_tile(&flag, col, row)
-                    }
-                }
-            }
-        }
+        draw_tiles(&mut tiles, &textures, state, &unflagged_mines);
 
         if state == State::Playing {
             elapsed = start.elapsed().as_secs() as usize
@@ -312,6 +213,164 @@ async fn main() {
 
         next_frame().await
     }
+}
+
+fn player_game(
+    mut tiles: &mut Vec<Vec<Tile>>,
+    mouse_x: f32,
+    mouse_y: f32,
+    state: &mut State,
+    unflagged_mines: &mut Vec<(usize, usize)>,
+    start: &mut Instant,
+    number_flagged: &mut usize,
+) {
+    let (col, row) = (
+        (((mouse_x - TILE_START_X) / TILE_SIZE) as usize).min(EXPERT_WIDTH - 1),
+        (((mouse_y - TILE_START_Y) / TILE_SIZE) as usize).min(EXPERT_HEIGHT - 1),
+    );
+
+    if *state == State::Playing
+        && (is_mouse_button_released(MouseButton::Left)
+            && is_mouse_button_released(MouseButton::Right)
+            || is_mouse_button_down(MouseButton::Left)
+                && is_mouse_button_released(MouseButton::Right)
+            || is_mouse_button_down(MouseButton::Right)
+                && is_mouse_button_released(MouseButton::Left)
+            || is_mouse_button_released(MouseButton::Middle))
+        && tiles[col][row].state == TileState::Revealed
+        && surrounding_tiles(col, row)
+            .into_iter()
+            .filter(|(col, row)| tiles[*col][*row].mine)
+            .count()
+            == surrounding_tiles(col, row)
+                .into_iter()
+                .filter(|(col, row)| tiles[*col][*row].state == TileState::Flagged)
+                .count()
+    {
+        let surrounding_tiles = surrounding_tiles(col, row);
+
+        for (surrounding_tile_col, surrounding_tile_row) in surrounding_tiles {
+            if tiles[surrounding_tile_col][surrounding_tile_row].mine {
+                if tiles[surrounding_tile_col][surrounding_tile_row].state != TileState::Flagged {
+                    *state = State::Dead;
+                    reveal_all_mines(&mut tiles);
+                    unflagged_mines.push((surrounding_tile_col, surrounding_tile_row))
+                } else {
+                    continue;
+                }
+            }
+
+            if *state == State::Playing {
+                tiles[surrounding_tile_col][surrounding_tile_row].state = TileState::Revealed;
+            }
+
+            if tiles[surrounding_tile_col][surrounding_tile_row].neighbour_mines_count == 0 {
+                reveal_empty_space(surrounding_tile_col, surrounding_tile_row, &mut tiles)
+            }
+        }
+    } else if *state == State::Playing
+        && tiles[col][row].state != TileState::Revealed
+        && is_mouse_button_pressed(MouseButton::Right)
+        && hovering_tile(mouse_x, mouse_y, col, row)
+    {
+        if tiles[col][row].state == TileState::Flagged {
+            *number_flagged -= 1;
+            tiles[col][row].state = TileState::Hidden
+        } else {
+            *number_flagged += 1;
+            tiles[col][row].state = TileState::Flagged
+        }
+    } else if (*state == State::Playing || *state == State::NewGame)
+        && is_mouse_button_pressed(MouseButton::Left)
+        && hovering_tile(mouse_x, mouse_y, col, row)
+        && tiles[col][row].state != TileState::Flagged
+    {
+        if *state == State::NewGame {
+            *tiles = generate_fair_game(col, row);
+            *start = Instant::now();
+            *state = State::Playing;
+        }
+
+        tiles[col][row].state = TileState::Revealed;
+
+        if tiles[col][row].mine {
+            *state = State::Dead;
+
+            reveal_all_mines(&mut tiles);
+
+            unflagged_mines.push((col, row));
+        } else if tiles[col][row].neighbour_mines_count == 0 {
+            reveal_empty_space(col, row, &mut tiles)
+        }
+    }
+}
+
+fn draw_tiles(
+    tiles: &mut [Vec<Tile>],
+    textures: &Textures,
+    state: State,
+    unflagged_mines: &[(usize, usize)],
+) {
+    for row in 0..EXPERT_HEIGHT {
+        for col in 0..EXPERT_WIDTH {
+            if state == State::Dead && tiles[col][row].mine {
+                if unflagged_mines.contains(&(col, row)) {
+                    draw_rectangle(
+                        TILE_START_X + 1.0 + col as f32 * TILE_SIZE,
+                        TILE_START_Y + 1.0 + row as f32 * TILE_SIZE,
+                        TILE_SIZE - 1.0,
+                        TILE_SIZE - 1.0,
+                        RED,
+                    )
+                }
+
+                draw_at_tile(&textures.mine, col, row)
+            }
+
+            if tiles[col][row].state == TileState::Revealed {
+                let neighbour_mines_count = tiles[col][row].neighbour_mines_count;
+
+                if neighbour_mines_count != 0
+                    && !tiles[col][row].mine
+                    && tiles[col][row].state != TileState::Flagged
+                {
+                    draw_at_tile(
+                        &textures.neighbour_mines[neighbour_mines_count as usize - 1],
+                        col,
+                        row,
+                    )
+                }
+            }
+
+            if state == State::Dead
+                && tiles[col][row].state == TileState::Flagged
+                && !tiles[col][row].mine
+            {
+                tiles[col][row].state = TileState::Revealed;
+                draw_at_tile(&textures.mine, col, row);
+                draw_at_tile(&textures.cross, col, row);
+            } else {
+                if tiles[col][row].state != TileState::Revealed {
+                    draw_at_tile(&textures.tile, col, row);
+                }
+
+                if tiles[col][row].state == TileState::Flagged {
+                    draw_at_tile(&textures.flag, col, row)
+                }
+            }
+        }
+    }
+}
+
+fn solve(tiles: &mut [Vec<Tile>]) {
+    let (start_col, start_row) = (0, 0);
+}
+
+#[macro_export]
+macro_rules! load_texture {
+    ( $path:tt ) => {
+        Texture2D::from_file_with_format(include_bytes!($path), None)
+    };
 }
 
 fn is_game_won(tiles: &[Vec<Tile>]) -> bool {
