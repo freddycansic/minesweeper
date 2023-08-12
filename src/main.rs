@@ -4,8 +4,8 @@ use macroquad::prelude::*;
 
 const EXPERT_WIDTH: usize = 30;
 const EXPERT_HEIGHT: usize = 16;
-// const EXPERT_MINES: usize = 99;
-const EXPERT_MINES: usize = 20;
+const EXPERT_MINES: usize = 99;
+// const EXPERT_MINES: usize = 20;
 const WINDOW_SIZE_MULTIPLIER: f32 = 1.5;
 const WINDOW_WIDTH: i32 = (505.0 * WINDOW_SIZE_MULTIPLIER) as i32;
 const WINDOW_HEIGHT: i32 = (324.0 * WINDOW_SIZE_MULTIPLIER) as i32;
@@ -71,7 +71,330 @@ struct Textures {
 }
 
 struct Board {
-    
+    tiles: Vec<Vec<Tile>>,
+    number_flagged: usize,
+    state: State,
+    start: Instant,
+    elapsed: usize,
+    unflagged_mines: Vec<(usize, usize)>,
+}
+
+impl Board {
+    fn new(width: usize, height: usize) -> Self {
+        Self {
+            tiles: vec![vec![Tile::default(); height]; width],
+            number_flagged: 0,
+            state: State::NewGame,
+            start: Instant::now(),
+            elapsed: 0,
+            unflagged_mines: vec![],
+        }
+    }
+
+    fn update(&mut self, mouse_x: f32, mouse_y: f32) {
+        if self.state == State::NewGame {
+            let (col, row) = (
+                (((mouse_x - TILE_START_X) / TILE_SIZE) as usize).min(EXPERT_WIDTH - 1),
+                (((mouse_y - TILE_START_Y) / TILE_SIZE) as usize).min(EXPERT_HEIGHT - 1),
+            );
+
+            if is_mouse_button_pressed(MouseButton::Left)
+                && hovering_tile(mouse_x, mouse_y, col, row)
+            {
+                self.start(col, row);
+            }
+        }
+
+        for col in 0..self.tiles.len() {
+            for row in 0..self.tiles[0].len() {
+                if self.neighbour_mines(col, row) == 0
+                    && !self.mine(col, row)
+                    && self.revealed(col, row)
+                {
+                    self.reveal_empty_space_at(col, row)
+                }
+            }
+        }
+
+        if self.state == State::Playing {
+            // self.player_game(mouse_x, mouse_y);
+            self.computer_game();
+        }
+    }
+
+    fn player_game(&mut self, mouse_x: f32, mouse_y: f32) {
+        let (col, row) = (
+            (((mouse_x - TILE_START_X) / TILE_SIZE) as usize).min(EXPERT_WIDTH - 1),
+            (((mouse_y - TILE_START_Y) / TILE_SIZE) as usize).min(EXPERT_HEIGHT - 1),
+        );
+
+        if self.state == State::Playing
+            && (is_mouse_button_released(MouseButton::Left)
+                && is_mouse_button_released(MouseButton::Right)
+                || is_mouse_button_down(MouseButton::Left)
+                    && is_mouse_button_released(MouseButton::Right)
+                || is_mouse_button_down(MouseButton::Right)
+                    && is_mouse_button_released(MouseButton::Left)
+                || is_mouse_button_released(MouseButton::Middle))
+            && self.revealed(col, row)
+            && surrounding_tiles(col, row)
+                .into_iter()
+                .filter(|(col, row)| self.mine(*col, *row))
+                .count()
+                == surrounding_tiles(col, row)
+                    .into_iter()
+                    .filter(|(col, row)| self.flagged(*col, *row))
+                    .count()
+        {
+            let surrounding_tiles = surrounding_tiles(col, row);
+
+            for (surrounding_tile_col, surrounding_tile_row) in surrounding_tiles {
+                if self.mine(surrounding_tile_col, surrounding_tile_row) {
+                    if !self.flagged(surrounding_tile_col, surrounding_tile_row) {
+                        self.state = State::Dead;
+                        self.reveal_all_mines();
+                        self.unflagged_mines
+                            .push((surrounding_tile_col, surrounding_tile_row))
+                    } else {
+                        continue;
+                    }
+                }
+
+                if self.state == State::Playing {
+                    self.tiles[surrounding_tile_col][surrounding_tile_row].state =
+                        TileState::Revealed;
+                }
+            }
+        } else if self.state == State::Playing
+            && !self.revealed(col, row)
+            && is_mouse_button_pressed(MouseButton::Right)
+            && hovering_tile(mouse_x, mouse_y, col, row)
+        {
+            if self.flagged(col, row) {
+                self.number_flagged -= 1;
+                self.tiles[col][row].state = TileState::Hidden
+            } else {
+                self.number_flagged += 1;
+                self.tiles[col][row].state = TileState::Flagged
+            }
+        } else if (self.state == State::Playing || self.state == State::NewGame)
+            && is_mouse_button_pressed(MouseButton::Left)
+            && hovering_tile(mouse_x, mouse_y, col, row)
+            && !self.flagged(col, row)
+        {
+            self.tiles[col][row].state = TileState::Revealed;
+
+            if self.mine(col, row) {
+                self.state = State::Dead;
+                self.reveal_all_mines();
+                self.unflagged_mines.push((col, row));
+            }
+        }
+    }
+
+    fn computer_game(&mut self) {
+        for col in 0..self.tiles.len() {
+            for row in 0..self.tiles[0].len() {
+                // only allowed to use revealed tiles
+                if !self.revealed(col, row) {
+                    continue;
+                }
+
+                let surrounding_tiles = surrounding_tiles(col, row);
+                let neighbour_mines = self.neighbour_mines(col, row);
+                let neighbour_flagged = surrounding_tiles
+                    .iter()
+                    .filter(|(col, row)| self.flagged(*col, *row))
+                    .count() as u8;
+                // let effective_neighbour_mines = neighbour_mines - neighbour_flagged;
+                let neighbour_unrevealed = surrounding_tiles
+                    .iter()
+                    .filter(|(col, row)| !self.revealed(*col, *row))
+                    .count() as u8;
+
+                // trivial corner 1s etc
+                if self.revealed(col, row) && neighbour_mines == neighbour_unrevealed {
+                    for (col, row) in surrounding_tiles.iter() {
+                        if !self.revealed(*col, *row) {
+                            self.tiles[*col][*row].state = TileState::Flagged;
+                        }
+                    }
+                }
+
+                if self.satisfied(col, row) {
+                    for (col, row) in surrounding_tiles.iter() {
+                        if !self.flagged(*col, *row) {
+                            self.tiles[*col][*row].state = TileState::Revealed;
+                        }
+                    }
+                }
+
+                self.solve_121s(col, row);
+            }
+        }
+    }
+
+    fn solve_121s(&mut self, col: usize, row: usize) {
+        if self.effective_neighbour_mines(col, row) != 2 {
+            return;
+        }
+
+        // has tiles to left and right
+        if col + 1 < EXPERT_WIDTH && col != 0 {
+            // 121 found
+            if self.effective_neighbour_mines(col + 1, row) == 1
+                && self.revealed(col + 1, row)
+                && self.effective_neighbour_mines(col - 1, row) == 1
+                && self.revealed(col - 1, row)
+            {
+                // has tiles below
+                if row + 1 < EXPERT_HEIGHT {
+                    // all 3 tiles below arent revealed
+                    if !self.revealed(col, row + 1)
+                        && !self.revealed(col + 1, row + 1)
+                        && !self.revealed(col - 1, row + 1)
+                    {
+                        self.tiles[col - 1][row + 1].state = TileState::Flagged;
+                        self.tiles[col + 1][row + 1].state = TileState::Flagged;
+                        self.tiles[col][row + 1].state = TileState::Revealed;
+                        println!("DOWN 121 solved {col} {row}");
+                    }
+                }
+                // has tiles above
+                if row != 0 {
+                    // all 3 tiles above arent revealed
+                    if !self.revealed(col, row - 1)
+                        && !self.revealed(col + 1, row - 1)
+                        && !self.revealed(col - 1, row - 1)
+                    {
+                        self.tiles[col - 1][row - 1].state = TileState::Flagged;
+                        self.tiles[col + 1][row - 1].state = TileState::Flagged;
+                        self.tiles[col][row - 1].state = TileState::Revealed;
+                        println!("UP 121 solved {col} {row}");
+                    }
+                }
+            }
+        }
+        // has tiles above and below
+        if row + 1 < EXPERT_HEIGHT && row != 0 {
+            // 121 found
+            if self.effective_neighbour_mines(col, row + 1) == 1
+                && self.revealed(col, row + 1)
+                && self.effective_neighbour_mines(col, row - 1) == 1
+                && self.revealed(col, row - 1)
+            {
+                // has tiles to left
+                if col != 0 {
+                    // all 3 tiles to left arent revealed
+                    if !self.revealed(col - 1, row)
+                        && !self.revealed(col - 1, row + 1)
+                        && !self.revealed(col - 1, row - 1)
+                    {
+                        self.tiles[col - 1][row + 1].state = TileState::Flagged;
+                        self.tiles[col - 1][row - 1].state = TileState::Flagged;
+                        self.tiles[col - 1][row].state = TileState::Revealed;
+                        println!("LEFT 121 solved {col} {row}");
+                    }
+                    // has tiles to right
+                }
+                if col + 1 < EXPERT_WIDTH {
+                    // all 3 tiles to right arent revealed
+                    if !self.revealed(col + 1, row)
+                        && !self.revealed(col + 1, row + 1)
+                        && !self.revealed(col + 1, row - 1)
+                    {
+                        self.tiles[col + 1][row + 1].state = TileState::Flagged;
+                        self.tiles[col + 1][row - 1].state = TileState::Flagged;
+                        self.tiles[col + 1][row].state = TileState::Revealed;
+                        println!("RIGHT 121 solved {col} {row}");
+                    }
+                }
+            }
+        }
+    }
+
+    fn effective_neighbour_mines(&self, col: usize, row: usize) -> u8 {
+        let neighbour_mines = self.neighbour_mines(col, row);
+        let neighbour_flagged = surrounding_tiles(col, row)
+            .iter()
+            .filter(|(col, row)| self.flagged(*col, *row))
+            .count() as u8;
+
+        neighbour_mines - neighbour_flagged
+    }
+
+    fn satisfied(&self, col: usize, row: usize) -> bool {
+        self.neighbour_mines(col, row)
+            == surrounding_tiles(col, row)
+                .into_iter()
+                .filter(|(col, row)| self.flagged(*col, *row))
+                .count() as u8
+    }
+
+    fn start(&mut self, start_col: usize, start_row: usize) {
+        self.tiles = generate_fair_game(start_col, start_row);
+        self.start = Instant::now();
+        self.state = State::Playing;
+        self.tiles[start_col][start_row].state = TileState::Revealed
+    }
+
+    fn revealed(&self, col: usize, row: usize) -> bool {
+        self.tiles[col][row].state == TileState::Revealed
+    }
+
+    fn flagged(&self, col: usize, row: usize) -> bool {
+        self.tiles[col][row].state == TileState::Flagged
+    }
+
+    fn mine(&self, col: usize, row: usize) -> bool {
+        self.tiles[col][row].mine
+    }
+
+    fn neighbour_mines(&self, col: usize, row: usize) -> u8 {
+        self.tiles[col][row].neighbour_mines_count
+    }
+
+    fn is_game_won(&self) -> bool {
+        for row in self.tiles.iter() {
+            for tile in row.iter() {
+                if !tile.mine && tile.state != TileState::Revealed {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn reveal_empty_space_at(&mut self, col: usize, row: usize) {
+        let mut queue = VecDeque::<(usize, usize)>::new();
+        queue.push_back((col, row));
+
+        while !queue.is_empty() {
+            let (current_col, current_row) = queue.pop_back().unwrap();
+
+            for (neighbour_col, neighbour_row) in surrounding_tiles(current_col, current_row) {
+                let mut neighbour_tile = &mut self.tiles[neighbour_col][neighbour_row];
+                if neighbour_tile.neighbour_mines_count == 0
+                    && neighbour_tile.state != TileState::Revealed
+                    && !neighbour_tile.mine
+                {
+                    queue.push_back((neighbour_col, neighbour_row))
+                }
+
+                neighbour_tile.state = TileState::Revealed;
+            }
+        }
+    }
+
+    fn reveal_all_mines(&mut self) {
+        for col in self.tiles.iter_mut() {
+            for tile in col.iter_mut() {
+                if tile.mine && tile.state != TileState::Flagged {
+                    tile.state = TileState::Revealed
+                }
+            }
+        }
+    }
 }
 
 #[macroquad::main(window_conf)]
@@ -111,14 +434,7 @@ async fn main() {
         ],
     };
 
-    let mut tiles = vec![vec![Tile::default(); EXPERT_HEIGHT]; EXPERT_WIDTH];
-
-    let mut unflagged_mines = Vec::<(usize, usize)>::new();
-    let mut number_flagged = 0;
-    let mut start = Instant::now();
-    let mut elapsed = 0;
-
-    let mut state = State::NewGame;
+    let mut board = Board::new(EXPERT_WIDTH, EXPERT_HEIGHT);
 
     loop {
         clear_background(Color::from_rgba(192, 192, 192, 255));
@@ -133,38 +449,33 @@ async fn main() {
         );
 
         draw_counter(
-            elapsed.min(999),
+            board.elapsed.min(999),
             TIME_COUNTER_START_X,
             MINES_COUNTER_START_Y,
             &textures.counter_digits,
         );
 
         draw_counter(
-            (EXPERT_MINES - number_flagged).max(0),
+            (EXPERT_MINES - board.number_flagged).max(0),
             MINES_COUNTER_START_X,
             MINES_COUNTER_START_Y,
             &textures.counter_digits,
         );
 
-        if state == State::Playing && is_game_won(&tiles) {
-            state = State::Won;
+        if board.state == State::Playing && board.is_game_won() {
+            board.state = State::Won;
         }
 
-        if is_mouse_button_pressed(MouseButton::Left)
-            && hovering_square(
-                mouse_x,
-                mouse_y,
-                SMILEY_START_X,
-                SMILEY_START_Y,
-                SMILEY_SIZE,
-            )
-        {
-            tiles = vec![vec![Tile::default(); EXPERT_HEIGHT]; EXPERT_WIDTH];
-            unflagged_mines.clear();
-            number_flagged = 0;
-            elapsed = 0;
-
-            state = State::NewGame;
+        if hovering_square(
+            mouse_x,
+            mouse_y,
+            SMILEY_START_X,
+            SMILEY_START_Y,
+            SMILEY_SIZE,
+        ) {
+            if is_mouse_button_pressed(MouseButton::Left) {
+                board = Board::new(EXPERT_WIDTH, EXPERT_HEIGHT);
+            }
         }
 
         let smiley_texture = if is_mouse_button_down(MouseButton::Left) {
@@ -179,9 +490,9 @@ async fn main() {
             } else {
                 &textures.smiley_open
             }
-        } else if state == State::Dead {
+        } else if board.state == State::Dead {
             &textures.smiley_dead
-        } else if state == State::Won {
+        } else if board.state == State::Won {
             &textures.smiley_glasses
         } else {
             &textures.smiley
@@ -195,126 +506,23 @@ async fn main() {
             SMILEY_SIZE,
         );
 
-        player_game(
-            &mut tiles,
-            mouse_x,
-            mouse_y,
-            &mut state,
-            &mut unflagged_mines,
-            &mut start,
-            &mut number_flagged,
-        );
+        board.update(mouse_x, mouse_y);
 
-        draw_tiles(&mut tiles, &textures, state, &unflagged_mines);
+        draw_tiles(&mut board, &textures);
 
-        if state == State::Playing {
-            elapsed = start.elapsed().as_secs() as usize
+        if board.state == State::Playing {
+            board.elapsed = board.start.elapsed().as_secs() as usize
         }
 
         next_frame().await
     }
 }
 
-fn player_game(
-    mut tiles: &mut Vec<Vec<Tile>>,
-    mouse_x: f32,
-    mouse_y: f32,
-    state: &mut State,
-    unflagged_mines: &mut Vec<(usize, usize)>,
-    start: &mut Instant,
-    number_flagged: &mut usize,
-) {
-    let (col, row) = (
-        (((mouse_x - TILE_START_X) / TILE_SIZE) as usize).min(EXPERT_WIDTH - 1),
-        (((mouse_y - TILE_START_Y) / TILE_SIZE) as usize).min(EXPERT_HEIGHT - 1),
-    );
-
-    if *state == State::Playing
-        && (is_mouse_button_released(MouseButton::Left)
-            && is_mouse_button_released(MouseButton::Right)
-            || is_mouse_button_down(MouseButton::Left)
-                && is_mouse_button_released(MouseButton::Right)
-            || is_mouse_button_down(MouseButton::Right)
-                && is_mouse_button_released(MouseButton::Left)
-            || is_mouse_button_released(MouseButton::Middle))
-        && tiles[col][row].state == TileState::Revealed
-        && surrounding_tiles(col, row)
-            .into_iter()
-            .filter(|(col, row)| tiles[*col][*row].mine)
-            .count()
-            == surrounding_tiles(col, row)
-                .into_iter()
-                .filter(|(col, row)| tiles[*col][*row].state == TileState::Flagged)
-                .count()
-    {
-        let surrounding_tiles = surrounding_tiles(col, row);
-
-        for (surrounding_tile_col, surrounding_tile_row) in surrounding_tiles {
-            if tiles[surrounding_tile_col][surrounding_tile_row].mine {
-                if tiles[surrounding_tile_col][surrounding_tile_row].state != TileState::Flagged {
-                    *state = State::Dead;
-                    reveal_all_mines(&mut tiles);
-                    unflagged_mines.push((surrounding_tile_col, surrounding_tile_row))
-                } else {
-                    continue;
-                }
-            }
-
-            if *state == State::Playing {
-                tiles[surrounding_tile_col][surrounding_tile_row].state = TileState::Revealed;
-            }
-
-            if tiles[surrounding_tile_col][surrounding_tile_row].neighbour_mines_count == 0 {
-                reveal_empty_space(surrounding_tile_col, surrounding_tile_row, &mut tiles)
-            }
-        }
-    } else if *state == State::Playing
-        && tiles[col][row].state != TileState::Revealed
-        && is_mouse_button_pressed(MouseButton::Right)
-        && hovering_tile(mouse_x, mouse_y, col, row)
-    {
-        if tiles[col][row].state == TileState::Flagged {
-            *number_flagged -= 1;
-            tiles[col][row].state = TileState::Hidden
-        } else {
-            *number_flagged += 1;
-            tiles[col][row].state = TileState::Flagged
-        }
-    } else if (*state == State::Playing || *state == State::NewGame)
-        && is_mouse_button_pressed(MouseButton::Left)
-        && hovering_tile(mouse_x, mouse_y, col, row)
-        && tiles[col][row].state != TileState::Flagged
-    {
-        if *state == State::NewGame {
-            *tiles = generate_fair_game(col, row);
-            *start = Instant::now();
-            *state = State::Playing;
-        }
-
-        tiles[col][row].state = TileState::Revealed;
-
-        if tiles[col][row].mine {
-            *state = State::Dead;
-
-            reveal_all_mines(&mut tiles);
-
-            unflagged_mines.push((col, row));
-        } else if tiles[col][row].neighbour_mines_count == 0 {
-            reveal_empty_space(col, row, &mut tiles)
-        }
-    }
-}
-
-fn draw_tiles(
-    tiles: &mut [Vec<Tile>],
-    textures: &Textures,
-    state: State,
-    unflagged_mines: &[(usize, usize)],
-) {
+fn draw_tiles(board: &mut Board, textures: &Textures) {
     for row in 0..EXPERT_HEIGHT {
         for col in 0..EXPERT_WIDTH {
-            if state == State::Dead && tiles[col][row].mine {
-                if unflagged_mines.contains(&(col, row)) {
+            if board.state == State::Dead && board.mine(col, row) {
+                if board.unflagged_mines.contains(&(col, row)) {
                     draw_rectangle(
                         TILE_START_X + 1.0 + col as f32 * TILE_SIZE,
                         TILE_START_Y + 1.0 + row as f32 * TILE_SIZE,
@@ -327,13 +535,10 @@ fn draw_tiles(
                 draw_at_tile(&textures.mine, col, row)
             }
 
-            if tiles[col][row].state == TileState::Revealed {
-                let neighbour_mines_count = tiles[col][row].neighbour_mines_count;
+            if board.revealed(col, row) {
+                let neighbour_mines_count = board.tiles[col][row].neighbour_mines_count;
 
-                if neighbour_mines_count != 0
-                    && !tiles[col][row].mine
-                    && tiles[col][row].state != TileState::Flagged
-                {
+                if neighbour_mines_count != 0 && !board.mine(col, row) && !board.flagged(col, row) {
                     draw_at_tile(
                         &textures.neighbour_mines[neighbour_mines_count as usize - 1],
                         col,
@@ -342,28 +547,21 @@ fn draw_tiles(
                 }
             }
 
-            if state == State::Dead
-                && tiles[col][row].state == TileState::Flagged
-                && !tiles[col][row].mine
-            {
-                tiles[col][row].state = TileState::Revealed;
+            if board.state == State::Dead && board.flagged(col, row) && !board.mine(col, row) {
+                board.tiles[col][row].state = TileState::Revealed;
                 draw_at_tile(&textures.mine, col, row);
                 draw_at_tile(&textures.cross, col, row);
             } else {
-                if tiles[col][row].state != TileState::Revealed {
+                if !board.revealed(col, row) {
                     draw_at_tile(&textures.tile, col, row);
-                }
 
-                if tiles[col][row].state == TileState::Flagged {
-                    draw_at_tile(&textures.flag, col, row)
+                    if board.flagged(col, row) {
+                        draw_at_tile(&textures.flag, col, row)
+                    }
                 }
             }
         }
     }
-}
-
-fn solve(tiles: &mut [Vec<Tile>]) {
-    let (start_col, start_row) = (0, 0);
 }
 
 #[macro_export]
@@ -371,48 +569,6 @@ macro_rules! load_texture {
     ( $path:tt ) => {
         Texture2D::from_file_with_format(include_bytes!($path), None)
     };
-}
-
-fn is_game_won(tiles: &[Vec<Tile>]) -> bool {
-    for row in tiles {
-        for tile in row {
-            if !tile.mine && tile.state != TileState::Revealed {
-                return false;
-            }
-        }
-    }
-    true
-}
-
-fn reveal_empty_space(col: usize, row: usize, tiles: &mut [Vec<Tile>]) {
-    let mut queue = VecDeque::<(usize, usize)>::new();
-    queue.push_back((col, row));
-
-    while !queue.is_empty() {
-        let (current_col, current_row) = queue.pop_back().unwrap();
-
-        for (neighbour_col, neighbour_row) in surrounding_tiles(current_col, current_row) {
-            let mut neighbour_tile = &mut tiles[neighbour_col][neighbour_row];
-            if neighbour_tile.neighbour_mines_count == 0
-                && neighbour_tile.state != TileState::Revealed
-                && !neighbour_tile.mine
-            {
-                queue.push_back((neighbour_col, neighbour_row))
-            }
-
-            neighbour_tile.state = TileState::Revealed;
-        }
-    }
-}
-
-fn reveal_all_mines(tiles: &mut [Vec<Tile>]) {
-    for col in tiles.iter_mut() {
-        for tile in col.iter_mut() {
-            if tile.mine && tile.state != TileState::Flagged {
-                tile.state = TileState::Revealed
-            }
-        }
-    }
 }
 
 fn draw_at_tile(texture: &Texture2D, col: usize, row: usize) {
